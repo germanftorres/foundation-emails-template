@@ -12,6 +12,10 @@ import path     from 'path';
 import merge    from 'merge-stream';
 import beep     from 'beepbeep';
 import colors   from 'colors';
+import mandrill from 'mandrill-api/mandrill';
+import through  from 'through2';
+import es       from 'event-stream';
+import Promise  from 'promise'
 
 const $ = plugins();
 
@@ -37,6 +41,9 @@ gulp.task('litmus',
 gulp.task('zip',
   gulp.series('build', zip));
 
+gulp.task('publish',
+  gulp.series('build', publishToMandrill));
+
 // Delete the "dist" folder
 // This happens every time a build starts
 function clean(done) {
@@ -49,9 +56,11 @@ function pages() {
   return gulp.src('src/pages/**/*.html')
     .pipe(panini({
       root: 'src/pages',
+      data: 'src/data',
       layouts: 'src/layouts',
       partials: 'src/partials',
-      helpers: 'src/helpers'
+      helpers: 'src/helpers',
+      production: PRODUCTION
     }))
     .pipe(inky())
     .pipe(gulp.dest('dist'));
@@ -205,5 +214,71 @@ function zip() {
 
   return merge(moveTasks);
 }
+
+function publishToMandrill() {
+  var mandrill_client = new mandrill.Mandrill('');
+
+  function uploadToMandrill(name, code) {
+    mandrill_client.templates.info({name: name}, 
+      res => {
+        mandrill_client.templates.update({
+        name: name,
+        code: code,
+      }, function(result) { console.log(result); }, function(e) { console.log('A mandrill error occurred: ' + e.name + ' - ' + e.message); });    
+      
+    }, error => {
+        mandrill_client.templates.add({
+        name: name,
+        code: code,
+        publish: true,
+        labels: ["t2s"] 
+      }, function(result) { console.log(result); }, function(e) { console.log('A mandrill error occurred: ' + e.name + ' - ' + e.message); });  
+
+    });
+  }    
+
+  function sendToMandrill() {
+    	return es.map(function (file, cb) {
+          if (file.isBuffer()) {
+            var name = path.basename(file.path, ".html");
+            var code = file.contents.toString("utf-8");    
+            console.log(`name: ${name}`);
+            console.log(`text: ${code}`);
+            uploadToMandrill(name, code);
+          }
+          cb(null, file);
+        });
+  }
+
+  var templateName = yargs.argv.template;
+  return gulp.src(`dist/**/${templateName}.html`)
+      .pipe(sendToMandrill());
+}
+
+// function publishToMandrill(css) {
+
+//   // publicar a mandrill
+
+
+//   var css = fs.readFileSync(css).toString();
+//   var mqCss = siphon(css);
+
+//   var pipe = lazypipe()
+//     .pipe($.inlineCss, {
+//       applyStyleTags: false,
+//       removeStyleTags: false,
+//       removeLinkTags: false
+//     })
+//     .pipe($.replace, '<!-- <style> -->', `<style>${mqCss}</style>`)
+//     .pipe($.htmlmin, {
+//       collapseWhitespace: true,
+//       minifyCSS: true
+//     });
+
+//   return pipe();
+
+// }
+
+
 
 
